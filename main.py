@@ -2,12 +2,9 @@ import json
 
 import requests
 from scheduler import Scheduler
-
-
-# for future reference, please make the API run faster! It takes forever to test
-
-class ScheduleError(Exception):
-    pass
+from schedule_error import ScheduleError
+# Grant: for future reference, please make the API run faster! It takes forever to test, and I feel like I didn't have time to set up my own
+# testing in 3 hours :)
 
 
 def main():
@@ -37,6 +34,7 @@ def main():
 
     # loop through until we no longer have appointment requests in the queue
     while True:
+        # send request to get the appointment
         result = requests.get(f'{BASE_URL}/api/Scheduling/AppointmentRequest', params=API_PARAMS, headers=HEADERS)
         status_code = result.status_code
         if status_code == 204:
@@ -45,13 +43,16 @@ def main():
             raise (ScheduleError("Invalid API Key"))
         elif status_code == 405:
             raise ScheduleError("The schedule has already been retrieved for this 'run'")
+        # parse the appointment and get back a schedule request
         new_schedule_request = scheduler.schedule(result.json())
-        result = requests.post(f'{BASE_URL}/api/Scheduling/Schedule', params=API_PARAMS, headers=HEADERS, data=json.dump(new_schedule_request))
+        # send schedule request to API
+        result = requests.post(f'{BASE_URL}/api/Scheduling/Schedule', params=API_PARAMS, headers=HEADERS, data=json.dumps(new_schedule_request))
         status_code = result.status_code
         if status_code == 405:
             raise ScheduleError("You already called 'stop' on this run")
         elif status_code == 500:
             raise ScheduleError(f"The schedule was unable to accommodate your requested appointment")
+        break # to test
 
     # close API to signal end
     result = requests.post(f'{BASE_URL}/api/Scheduling/Stop', params=API_PARAMS, headers=HEADERS)
@@ -67,5 +68,5 @@ if __name__ == '__main__':
         print("Done!")
     except ScheduleError as error:
         print(f"Schedule error: {str(error)}")
-    except Exception as error:
-        print(f'Something went wrong! {str(error)}')
+    # except Exception as error:
+    #     print(f'Something went wrong! {str(error)}')
