@@ -1,7 +1,7 @@
 from datetime import datetime
 from schedule_error import ScheduleError
 
-# 2021-11-14T22:27:13.556Z
+# date formats to convert date strings to date objects and vice versa
 DATE_FORMAT = '%Y-%m-%dT%H:%M:%SZ'
 SET_DATE_FORMAT = '%Y-%m-%dT%H'
 
@@ -15,6 +15,7 @@ class Scheduler:
         print(self.patient_schedules)
         print(self.doctor_schedules)
 
+    # helper function to fill the schedule dicts with the initial schedule
     def _fill_schedules(self, init_schedule: list[dict]):
         # loop through list of previous appointments
         for appt in init_schedule:
@@ -29,6 +30,8 @@ class Scheduler:
                 datetime.strptime(appt['appointmentTime'], DATE_FORMAT).strftime(SET_DATE_FORMAT))
         return
 
+    # this function is the endpoint to handle a appt schedule request, will call helper functions and return dict with json
+    # data to send back to the server to schedule
     def schedule(self, app_request: dict) -> dict:
         # First, need to check if the person is new.If they are, then schedule for preferred days at 3-4
         schedule_request = None
@@ -41,12 +44,13 @@ class Scheduler:
             schedule_request = self._create_curr_patient_request(app_request['preferredDocs'],
                                                                  app_request['preferredDays'],
                                                                  app_request['personId'], app_request['requestId'])
+        # error check, shouldn't ever happen
         if schedule_request is None:
             raise ScheduleError("Never made a schedule request!")
         # create and return new appointment request
         return schedule_request
 
-    # this function will handle a new patient request to the patient and return a dictionary with the schedule request
+    # this function will handle a new patient request and return a dictionary with the schedule request
     def _create_new_patient_request(self, preferred_docs: list[int], preferred_days: list[str], person_id: int,
                                     request_id: int):
         # since this person doesn't have any appointments yet, we can just look for the next open date
@@ -58,8 +62,8 @@ class Scheduler:
             for pref_day_str in preferred_days:
                 # check 3:00
                 pref_day = datetime.strptime(pref_day_str, DATE_FORMAT).replace(hour=15)
-                # if it is a weekend, then we don't schedule!
-                if self._can_schedule(pref_day):
+                # check to make sure we can schedule that day
+                if not self._can_schedule(pref_day):
                     continue
                 if pref_day.strftime(SET_DATE_FORMAT) not in self.doctor_schedules[doc]:
                     schedule_date = pref_day
@@ -83,6 +87,7 @@ class Scheduler:
         # got to add a new entry, as we haven't seen this person before
         self.patient_schedules[person_id] = set()
         self.patient_schedules[person_id].add(schedule_date.strftime(SET_DATE_FORMAT))
+        # return JSON object
         return {
             'doctorId': scheduled_doc,
             'personId': person_id,
@@ -91,6 +96,7 @@ class Scheduler:
             'requestId': request_id
         }
 
+    # this function will handle an appt request for an exisiting patient and return a dictionary with the schedule request
     def _create_curr_patient_request(self, preferred_docs: list[int], preferred_days: list[str], person_id: int,
                                      request_id: int):
         schedule_date = None
@@ -98,13 +104,13 @@ class Scheduler:
         for doc in preferred_docs:
             for pref_day_str in preferred_days:
                 pref_day = datetime.strptime(pref_day_str, DATE_FORMAT)
-                # if it is a weekend, out of range, or within then we don't schedule!
-                if self._can_schedule(pref_day, person_id):
+                # check to make sure we can schedule that day
+                if not self._can_schedule(pref_day, person_id):
                     continue
-                # check each hour to schedule appt
+                # check each hour to schedule appt with preferred doctor. Leaving out 3 and 4 for new patients
                 for hour in range(8, 15):
                     if pref_day.replace(hour=hour).strftime(SET_DATE_FORMAT) not in self.doctor_schedules[doc]:
-                        schedule_date = pref_day
+                        schedule_date = pref_day.replace(hour=hour)
                         scheduled_doc = doc
                         break
                 # if we have found an appt then break
@@ -119,6 +125,7 @@ class Scheduler:
         # add to our doctor and patient dicts
         self.doctor_schedules[scheduled_doc].add(schedule_date.strftime(SET_DATE_FORMAT))
         self.patient_schedules[person_id].add(schedule_date.strftime(SET_DATE_FORMAT))
+        # return JSON object
         return {
             'doctorId': scheduled_doc,
             'personId': person_id,
@@ -127,19 +134,26 @@ class Scheduler:
             'requestId': request_id
         }
 
+    # this function checks edge cases to check if a date for an appt is valid
     def _can_schedule(self, day, person_id=None):
-        if day.isoweekday():
+        # make sure it isn't a weekend
+        if not day.isoweekday():
             return False
+        # make sure it is between November and December
         if day > datetime(2022, 1, 1):
             return False
         if day < datetime(2021, 11, 1):
             return False
+        # if previous patient, make sure the appt is 7 days away from other appts
         if person_id:
             for appt in self.patient_schedules[person_id]:
-                date = datetime.strptime(appt['appointmentTime'], DATE_FORMAT)
-                if day > date and day - date < 7:
+                date = datetime.strptime(appt, SET_DATE_FORMAT)
+                if day > date and (day - date).days < 7:
                     return False
-                elif day < date and date - day < 7:
+                elif day < date and (date - day).days < 7:
                     return False
+                elif (day - date).days == 0:
+                    return False
+        # if valid, return true
         return True
 

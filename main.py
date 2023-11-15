@@ -1,12 +1,10 @@
 import json
-
 import requests
 from scheduler import Scheduler
 from schedule_error import ScheduleError
-# Grant: for future reference, please make the API run faster! It takes forever to test, and I feel like I didn't have time to set up my own
-# testing in 3 hours :)
 
 
+# this function calls endpoints
 def main():
     # set up API
     API_KEY = "61cb87f4-4052-4930-8b32-752e305a263c"
@@ -16,14 +14,16 @@ def main():
         "accept": "*/*",
         'Content-Type': 'application/json'
     }
+    session = requests.Session()
 
     # call API to start
-    result = requests.post(f'{BASE_URL}/api/Scheduling/Start', params=API_PARAMS, headers=HEADERS)
+    result = session.post(f'{BASE_URL}/api/Scheduling/Start', params=API_PARAMS, headers=HEADERS)
     if result.status_code == 401:
         raise ScheduleError("Invalid API Key")
 
     # create scheduler and initalize schedule
-    result = requests.get(f'{BASE_URL}/api/Scheduling/Schedule', params=API_PARAMS, headers=HEADERS)
+    print("started")
+    result = session.get(f'{BASE_URL}/api/Scheduling/Schedule', params=API_PARAMS, headers=HEADERS)
     status_code = result.status_code
     if status_code == 401:
         raise (ScheduleError("Invalid API Key"))
@@ -35,7 +35,7 @@ def main():
     # loop through until we no longer have appointment requests in the queue
     while True:
         # send request to get the appointment
-        result = requests.get(f'{BASE_URL}/api/Scheduling/AppointmentRequest', params=API_PARAMS, headers=HEADERS)
+        result = session.get(f'{BASE_URL}/api/Scheduling/AppointmentRequest', params=API_PARAMS, headers=HEADERS)
         status_code = result.status_code
         if status_code == 204:
             break  # we are done!!
@@ -43,19 +43,23 @@ def main():
             raise (ScheduleError("Invalid API Key"))
         elif status_code == 405:
             raise ScheduleError("The schedule has already been retrieved for this 'run'")
+
         # parse the appointment and get back a schedule request
         new_schedule_request = scheduler.schedule(result.json())
+
         # send schedule request to API
-        result = requests.post(f'{BASE_URL}/api/Scheduling/Schedule', params=API_PARAMS, headers=HEADERS, data=json.dumps(new_schedule_request))
+        result = session.post(f'{BASE_URL}/api/Scheduling/Schedule', params=API_PARAMS, headers=HEADERS,
+                              data=json.dumps(new_schedule_request))
         status_code = result.status_code
         if status_code == 405:
             raise ScheduleError("You already called 'stop' on this run")
         elif status_code == 500:
-            raise ScheduleError(f"The schedule was unable to accommodate your requested appointment")
-        break # to test
+            print(f'Patient {scheduler.patient_schedules}, Doc {scheduler.doctor_schedules}')
+            raise ScheduleError(
+                f"The schedule was unable to accommodate your requested appointment {new_schedule_request}")
 
     # close API to signal end
-    result = requests.post(f'{BASE_URL}/api/Scheduling/Stop', params=API_PARAMS, headers=HEADERS)
+    result = session.post(f'{BASE_URL}/api/Scheduling/Stop', params=API_PARAMS, headers=HEADERS)
     if result.status_code == 401:
         raise ScheduleError("Invalid API Key")
 
@@ -68,5 +72,5 @@ if __name__ == '__main__':
         print("Done!")
     except ScheduleError as error:
         print(f"Schedule error: {str(error)}")
-    # except Exception as error:
-    #     print(f'Something went wrong! {str(error)}')
+    except Exception as error:
+        print(f'Something went wrong! {str(error)}')
